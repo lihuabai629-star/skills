@@ -1,0 +1,6 @@
+Warning: Permanently added '10.100.11.42' (ED25519) to the list of known hosts.
+WARNING! This system is PRIVATE and PROPRIETARY and may only be accessed by authorized users. Unauthorized use of the system is prohibited. The owner, or its agents, may monitor any activity or communication on the system. The owner, or its agents, may retrieve any information stored within the system. By accessing and using the system, you are consenting to such monitoring and information retrieval for law enforcement and other purposes.
+********** Debug Shell Copyright(C) 2023 **********
+bash: can't access tty; job control turned off
+  /bmc/kepler/Chassis/1/SensorSelInfo
+DBUS_SESSION_BUS_ADDRESS=unix:abstract=/tmp/dbus-test,guid=1234

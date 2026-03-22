@@ -1,0 +1,7 @@
+{"timestamp":"2026-03-17T07:00:00.000Z","type":"session_meta","payload":{"id":"session-test-123","timestamp":"2026-03-17T07:00:00.000Z","cwd":"/workspace/demo","cli_version":"0.114.0","model_provider":"openai"}}
+{"timestamp":"2026-03-17T07:00:00.100Z","type":"turn_context","payload":{"turn_id":"turn-1","cwd":"/workspace/demo","current_date":"2026-03-17","timezone":"Asia/Shanghai","approval_policy":"never","sandbox_policy":{"type":"danger-full-access"},"model":"gpt-5.4"}}
+{"timestamp":"2026-03-17T07:00:01.000Z","type":"event_msg","payload":{"type":"user_message","message":"Investigate why the parser misses tool output."}}
+{"timestamp":"2026-03-17T07:00:02.000Z","type":"event_msg","payload":{"type":"agent_message","message":"I will inspect the rollout format and add tests first."}}
+{"timestamp":"2026-03-17T07:00:03.000Z","type":"response_item","payload":{"type":"function_call","name":"exec_command","arguments":"{\"cmd\":\"git status --short\"}","call_id":"call-1"}}
+{"timestamp":"2026-03-17T07:00:04.000Z","type":"response_item","payload":{"type":"function_call_output","call_id":"call-1","output":"Chunk ID: demo\nWall time: 0.001 seconds\nProcess exited with code 0\nOutput:\n M main.py\n"}}
+{"timestamp":"2026-03-17T07:00:05.000Z","type":"event_msg","payload":{"type":"agent_message","message":"Final answer: fixed the parser bug and added regression tests.","phase":"final_answer"}}

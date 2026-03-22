@@ -1,0 +1,10 @@
+{"timestamp":"2026-03-18T01:00:00.000Z","type":"session_meta","payload":{"id":"session-terminal-input-1","timestamp":"2026-03-18T01:00:00.000Z","cwd":"/workspace/demo","cli_version":"0.114.0","model_provider":"openai"}}
+{"timestamp":"2026-03-18T01:00:00.100Z","type":"turn_context","payload":{"turn_id":"turn-1","cwd":"/workspace/demo","current_date":"2026-03-18","timezone":"Asia/Shanghai","approval_policy":"never","sandbox_policy":{"type":"danger-full-access"},"model":"gpt-5.4"}}
+{"timestamp":"2026-03-18T01:00:01.000Z","type":"event_msg","payload":{"type":"user_message","message":"Show the terminal interaction in the note export."}}
+{"timestamp":"2026-03-18T01:00:02.000Z","type":"response_item","payload":{"type":"function_call","name":"exec_command","arguments":"{\"cmd\":\"python demo.py\",\"tty\":true}","call_id":"call-tty-1"}}
+{"timestamp":"2026-03-18T01:00:03.000Z","type":"response_item","payload":{"type":"function_call_output","call_id":"call-tty-1","output":"Process running with session ID 9001\n"}}
+{"timestamp":"2026-03-18T01:00:04.000Z","type":"response_item","payload":{"type":"function_call","name":"write_stdin","arguments":"{\"session_id\":9001,\"chars\":\"status\\n\",\"yield_time_ms\":1000}","call_id":"call-tty-2"}}
+{"timestamp":"2026-03-18T01:00:05.000Z","type":"response_item","payload":{"type":"function_call_output","call_id":"call-tty-2","output":"Current status: ready\n"}}
+{"timestamp":"2026-03-18T01:00:06.000Z","type":"response_item","payload":{"type":"function_call","name":"write_stdin","arguments":"{\"session_id\":9001,\"chars\":\"\",\"yield_time_ms\":1000}","call_id":"call-tty-3"}}
+{"timestamp":"2026-03-18T01:00:07.000Z","type":"response_item","payload":{"type":"function_call_output","call_id":"call-tty-3","output":"No new output.\n"}}
+{"timestamp":"2026-03-18T01:00:08.000Z","type":"event_msg","payload":{"type":"agent_message","message":"Final answer: the exported note now includes terminal input details.","phase":"final_answer"}}

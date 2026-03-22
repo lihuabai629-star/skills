@@ -12,7 +12,6 @@ See: https://github.com/microsoft/playwright/issues/36139
 import argparse
 import sys
 import time
-import re
 from pathlib import Path
 
 from patchright.sync_api import sync_playwright
@@ -29,6 +28,8 @@ from config import (
     PAGE_LOAD_TIMEOUT,
     QUERY_RETRIES,
     QUERY_RETRY_DELAY_SECONDS,
+    QUERY_MAX_TOTAL_SECONDS,
+    QUERY_HEARTBEAT_SECONDS,
 )
 from browser_utils import BrowserFactory, StealthUtils
 
@@ -42,6 +43,31 @@ FOLLOW_UP_REMINDER = (
     "If anything is still unclear or missing, ask me another comprehensive question "
     "that includes all necessary context (since each question opens a new browser session)."
 )
+
+
+def _log(message: str):
+    """Always flush log output so long-running queries show live progress."""
+    print(message, flush=True)
+
+
+def _wait_for_notebook_page(page, timeout_ms: int = 10000, poll_ms: int = 250) -> str:
+    """
+    Wait until the page is clearly on a NotebookLM notebook or redirected to login.
+
+    `page.wait_for_url()` is too brittle here: after `goto()` completes, Patchright still
+    performs an extra load-state wait and can time out even when `page.url` already matches
+    the target notebook. Poll the current URL directly instead.
+    """
+    deadline = time.time() + (timeout_ms / 1000)
+    while True:
+        url = page.url or ""
+        if url.startswith("https://notebooklm.google.com/"):
+            return "ready"
+        if "accounts.google.com" in url:
+            return "login"
+        if time.time() >= deadline:
+            raise TimeoutError(f"Timeout {timeout_ms}ms exceeded.")
+        page.wait_for_timeout(poll_ms)
 
 
 def _ask_notebooklm_once(
@@ -62,8 +88,8 @@ def _ask_notebooklm_once(
     Returns:
         Answer text from NotebookLM
     """
-    print(f"💬 Asking: {question}")
-    print(f"📚 Notebook: {notebook_url}")
+    _log(f"💬 Asking: {question}")
+    _log(f"📚 Notebook: {notebook_url}")
 
     playwright = None
     context = None
@@ -80,20 +106,28 @@ def _ask_notebooklm_once(
 
         # Navigate to notebook
         page = context.new_page()
-        print("  🌐 Opening notebook...")
+        _log("  🌐 Opening notebook...")
         page.goto(notebook_url, wait_until="domcontentloaded", timeout=PAGE_LOAD_TIMEOUT)
 
         # Wait for NotebookLM
         try:
-            page.wait_for_url(re.compile(r"^https://notebooklm\.google\.com/"), timeout=10000)
+            status = _wait_for_notebook_page(page, timeout_ms=10000)
         except Exception:
+            _log(f"  ⚠️ Notebook open state: url={page.url}")
+            try:
+                _log(f"  ⚠️ Notebook title: {page.title()}")
+            except Exception:
+                pass
             if "accounts.google.com" in page.url:
-                print("  ❌ Not authenticated (redirected to login). Run: python scripts/run.py auth_manager.py setup")
+                _log("  ❌ Not authenticated (redirected to login). Run: python scripts/run.py auth_manager.py setup")
                 return None
             raise
+        if status == "login":
+            _log("  ❌ Not authenticated (redirected to login). Run: python scripts/run.py auth_manager.py setup")
+            return None
 
         # Wait for query input (MCP approach)
-        print("  ⏳ Waiting for query input...")
+        _log("  ⏳ Waiting for query input...")
         query_element = None
 
         for selector in QUERY_INPUT_SELECTORS:
@@ -104,48 +138,75 @@ def _ask_notebooklm_once(
                     state="visible"  # Only check visibility, not disabled!
                 )
                 if query_element:
-                    print(f"  ✓ Found input: {selector}")
+                    _log(f"  ✓ Found input: {selector}")
                     break
-            except:
+            except Exception:
                 continue
 
         if not query_element:
-            print("  ❌ Could not find query input")
+            _log("  ❌ Could not find query input")
             return None
 
         # Type question (human-like, fast)
-        print("  ⏳ Typing question...")
+        _log("  ⏳ Typing question...")
         
         # Use primary selector for typing
         input_selector = QUERY_INPUT_SELECTORS[0]
         StealthUtils.human_type(page, input_selector, question)
 
         # Submit
-        print("  📤 Submitting...")
+        _log("  📤 Submitting...")
         page.keyboard.press("Enter")
 
         # Small pause
         StealthUtils.random_delay(500, 1500)
 
         # Wait for response (MCP approach: poll for stable text)
-        print("  ⏳ Waiting for answer...")
+        _log("  ⏳ Waiting for answer...")
 
         answer = None
         stable_count = 0
         last_text = None
-        deadline = time.time() + timeout_seconds
+        last_reported_len = 0
+        start_time = time.time()
+        last_progress_time = start_time
+        next_heartbeat = start_time + QUERY_HEARTBEAT_SECONDS
+        max_total_seconds = max(timeout_seconds, QUERY_MAX_TOTAL_SECONDS)
 
-        while time.time() < deadline:
-            # Check if NotebookLM is still thinking (most reliable indicator)
+        while True:
+            now = time.time()
+            elapsed = int(now - start_time)
+            inactive_for = int(now - last_progress_time)
+
+            if now >= next_heartbeat:
+                _log(
+                    f"  ⏱️ Waiting... elapsed={elapsed}s, inactive={inactive_for}s, "
+                    f"soft-timeout={timeout_seconds}s, hard-timeout={max_total_seconds}s"
+                )
+                next_heartbeat = now + QUERY_HEARTBEAT_SECONDS
+
+            # Hard cap avoids endless waits if NotebookLM UI gets stuck in "thinking" state.
+            if elapsed >= max_total_seconds:
+                _log(f"  ❌ Timeout waiting for answer (hit hard limit: {max_total_seconds}s)")
+                return None
+
+            # Soft timeout is reset by any observable progress.
+            if inactive_for >= timeout_seconds:
+                _log(f"  ❌ Timeout waiting for answer (no progress for {timeout_seconds}s)")
+                return None
+
+            # Check if NotebookLM is still thinking.
             try:
                 thinking_element = page.query_selector('div.thinking-message')
                 if thinking_element and thinking_element.is_visible():
+                    last_progress_time = now
                     time.sleep(1)
                     continue
-            except:
+            except Exception:
                 pass
 
             # Try to find response with MCP selectors
+            saw_progress = False
             for selector in RESPONSE_SELECTORS:
                 try:
                     elements = page.query_selector_all(selector)
@@ -163,24 +224,29 @@ def _ask_notebooklm_once(
                             else:
                                 stable_count = 0
                                 last_text = text
-                except:
+                                saw_progress = True
+
+                                # Only report significant growth to keep logs readable.
+                                if last_reported_len == 0 or len(text) >= last_reported_len + 200:
+                                    _log(f"  ✍️ Answer streaming... {len(text)} chars")
+                                    last_reported_len = len(text)
+                except Exception:
                     continue
 
             if answer:
                 break
 
+            if saw_progress:
+                last_progress_time = now
+
             time.sleep(1)
 
-        if not answer:
-            print("  ❌ Timeout waiting for answer")
-            return None
-
-        print("  ✅ Got answer!")
+        _log("  ✅ Got answer!")
         # Add follow-up reminder to encourage Claude to ask more questions
         return answer + FOLLOW_UP_REMINDER
 
     except Exception as e:
-        print(f"  ❌ Error: {e}")
+        _log(f"  ❌ Error: {e}")
         import traceback
         traceback.print_exc()
         return None
@@ -213,13 +279,13 @@ def ask_notebooklm(
     """
     auth = AuthManager()
     if not auth.is_authenticated():
-        print("⚠️ Not authenticated. Run: python scripts/run.py auth_manager.py setup")
+        _log("⚠️ Not authenticated. Run: python scripts/run.py auth_manager.py setup")
         return None
 
     last_answer = None
     for attempt in range(retries + 1):
         if attempt > 0:
-            print(f"  🔁 Retry {attempt}/{retries}...")
+            _log(f"  🔁 Retry {attempt}/{retries}...")
 
         last_answer = _ask_notebooklm_once(
             question=question,

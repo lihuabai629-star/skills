@@ -33,6 +33,15 @@ YYYY-MM-DD HH:MM:SS.micro component LEVEL: file(line): message
 
 `scripts/collect_logs.py` 可用 `--since-boot` 自动完成。
 
+如果你要让 agent 或其他脚本自动消费日志抓取结果，也可以直接加 `--json`。现在推荐优先读统一外壳：
+- `schema_version`
+- `tool`
+- `request`
+- `result`
+- `warnings`
+
+其中 `collect_logs.py --json` 的 `request` 会包含 `logs_requested`、`keywords`、`since_boot_requested`、`lines`、`include_rotated` 和 `rotated_limit`；`result` 会包含 `boot_time`、`entries` 和 `written_files`。每个 `entries[*]` 里会带 `path`、`line_count`、`lines`、`empty` 和 `empty_message`。
+
 ## 环境快照（用于对齐时间/版本）
 ```
 date
@@ -46,4 +55,5 @@ cat /etc/os-release 2>/dev/null || cat /etc/issue 2>/dev/null || cat /etc/versio
 python scripts/collect_logs.py --ip <ip> --lines 2000 --logs app.log,framework.log
 python scripts/collect_logs.py --ip <ip> --lines 2000 --grep gpu,pcie --since-boot
 python scripts/collect_logs.py --ip <ip> --lines 2000 --include-rotated --output-dir /tmp/openubmc-logs
+python scripts/collect_logs.py --ip <ip> --lines 2000 --logs app.log --grep sensor --since-boot --json
 ```

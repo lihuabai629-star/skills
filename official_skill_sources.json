@@ -1,0 +1,89 @@
+{
+  "custom_skills": [
+    "notebooklm-skill",
+    "openubmc-debug",
+    "openubmc-developer",
+    "openubmc-log-analyzer"
+  ],
+  "sources": {
+    "brand-guidelines": {
+      "repo": "anthropics/skills",
+      "ref": "main",
+      "path": "skills/brand-guidelines"
+    },
+    "docx": {
+      "repo": "anthropics/skills",
+      "ref": "main",
+      "path": "skills/docx"
+    },
+    "find-skills": {
+      "repo": "vercel-labs/skills",
+      "ref": "main",
+      "path": "skills/find-skills"
+    },
+    "frontend-design": {
+      "repo": "anthropics/skills",
+      "ref": "main",
+      "path": "skills/frontend-design"
+    },
+    "json-canvas": {
+      "repo": "kepano/obsidian-skills",
+      "ref": "main",
+      "path": "skills/json-canvas"
+    },
+    "mcp-builder": {
+      "repo": "anthropics/skills",
+      "ref": "main",
+      "path": "skills/mcp-builder"
+    },
+    "obsidian-bases": {
+      "repo": "kepano/obsidian-skills",
+      "ref": "main",
+      "path": "skills/obsidian-bases"
+    },
+    "obsidian-markdown": {
+      "repo": "kepano/obsidian-skills",
+      "ref": "main",
+      "path": "skills/obsidian-markdown"
+    },
+    "pdf": {
+      "repo": "anthropics/skills",
+      "ref": "main",
+      "path": "skills/pdf"
+    },
+    "pptx": {
+      "repo": "anthropics/skills",
+      "ref": "main",
+      "path": "skills/pptx"
+    },
+    "skill-creator": {
+      "repo": "openai/skills",
+      "ref": "main",
+      "path": "skills/.system/skill-creator"
+    },
+    "skill-installer": {
+      "repo": "openai/skills",
+      "ref": "main",
+      "path": "skills/.system/skill-installer"
+    },
+    "ui-ux-pro-max": {
+      "repo": "nextlevelbuilder/ui-ux-pro-max-skill",
+      "ref": "main",
+      "path": ".claude/skills/ui-ux-pro-max",
+      "copies": [
+        {
+          "from": "src/ui-ux-pro-max/data",
+          "to": "data"
+        },
+        {
+          "from": "src/ui-ux-pro-max/scripts",
+          "to": "scripts"
+        },
+        {
+          "from": "src/ui-ux-pro-max/templates",
+          "to": "templates"
+        }
+      ]
+    }
+  }
+}

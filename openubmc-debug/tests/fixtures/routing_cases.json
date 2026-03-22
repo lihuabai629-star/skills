@@ -1,0 +1,82 @@
+[
+  {
+    "id": "local-only-sel-meaning",
+    "prompt": "Mngmnt Health / Sensor access degraded or unavailable 这个告警产生的原因",
+    "expected_skill": "openubmc-debug",
+    "expected_path": "local-only",
+    "expected_channels": ["local"],
+    "preferred_scripts": ["local-code-search"],
+    "forbidden_scripts": ["busctl_remote.py", "mdbctl_remote.py", "collect_logs.py"],
+    "reason": "只有告警文案和 SEL 语义，没有现场采集诉求，先走本地代码快路径。"
+  },
+  {
+    "id": "telnet-app-log-grep",
+    "prompt": "10.121.177.97 帮我 grep app.log 里的 sensor scan failed",
+    "expected_skill": "openubmc-debug",
+    "expected_path": "telnet",
+    "expected_channels": ["telnet"],
+    "preferred_scripts": ["collect_logs.py"],
+    "forbidden_scripts": ["busctl_remote.py", "mdbctl_remote.py"],
+    "reason": "明确点名 app.log 和 grep 日志，日志面默认走 Telnet。"
+  },
+  {
+    "id": "ssh-busctl-tree",
+    "prompt": "10.121.177.97 用 busctl 看 bmc.kepler.sensor 对象树",
+    "expected_skill": "openubmc-debug",
+    "expected_path": "ssh",
+    "expected_channels": ["ssh"],
+    "preferred_scripts": ["busctl_remote.py"],
+    "forbidden_scripts": ["collect_logs.py"],
+    "reason": "明确要求 busctl 和对象树，属于 SSH 对象面。"
+  },
+  {
+    "id": "ssh-telnet-correlate",
+    "prompt": "10.121.177.97 查当前 SensorSelInfo 对象状态，再对一下 framework.log 同时间的错误",
+    "expected_skill": "openubmc-debug",
+    "expected_path": "ssh+telnet",
+    "expected_channels": ["ssh", "telnet"],
+    "preferred_scripts": ["busctl_remote.py", "collect_logs.py"],
+    "forbidden_scripts": [],
+    "reason": "同时要求对象状态和日志时间线，必须联合取证。"
+  },
+  {
+    "id": "log-bundle-only",
+    "prompt": "/tmp/bmc_bundle.tar.gz 帮我分析 framework.log 里的 hwproxy 报错",
+    "expected_skill": "openubmc-log-analyzer",
+    "expected_path": "log-analyzer",
+    "expected_channels": ["log-bundle"],
+    "preferred_scripts": ["openubmc-log-analyzer"],
+    "forbidden_scripts": ["busctl_remote.py", "mdbctl_remote.py", "collect_logs.py"],
+    "reason": "只有日志包，没有现场对象查询需求，应先走日志包分析。"
+  },
+  {
+    "id": "log-bundle-plus-ip",
+    "prompt": "/tmp/bmc_bundle.tar.gz 和 10.121.177.97 一起看，先从日志缩小范围，再去现场确认对象树",
+    "expected_skill": "openubmc-log-analyzer",
+    "expected_path": "log-analyzer+debug",
+    "expected_channels": ["log-bundle", "ssh"],
+    "preferred_scripts": ["openubmc-log-analyzer", "busctl_remote.py"],
+    "forbidden_scripts": [],
+    "reason": "先用日志包收敛，再补现场 DBus 证据。"
+  },
+  {
+    "id": "build-failure-route-away",
+    "prompt": "bingo build 失败，帮我分析 sensor 模块编译报错",
+    "expected_skill": "openubmc-developer",
+    "expected_path": "route-away-developer",
+    "expected_channels": ["developer"],
+    "preferred_scripts": ["openubmc-developer"],
+    "forbidden_scripts": ["busctl_remote.py", "mdbctl_remote.py", "collect_logs.py"],
+    "reason": "编译失败是开发实现问题，不是运行时排障。"
+  },
+  {
+    "id": "design-review-route-away",
+    "prompt": "评审一下 Redfish 映射设计和 CSR/MDS 修改方案",
+    "expected_skill": "openubmc-developer",
+    "expected_path": "route-away-developer",
+    "expected_channels": ["developer"],
+    "preferred_scripts": ["openubmc-developer"],
+    "forbidden_scripts": ["busctl_remote.py", "mdbctl_remote.py", "collect_logs.py"],
+    "reason": "设计评审和模型修改不属于 debug skill 的边界。"
+  }
+]

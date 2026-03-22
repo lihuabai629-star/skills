@@ -1,0 +1,4 @@
+interface:
+  display_name: "Codex Session Memory"
+  short_description: "Archive Codex sessions and reusable lessons"
+  default_prompt: "Use $codex-session-memory to export Codex sessions into Obsidian notes or capture reusable lessons."

@@ -88,7 +88,11 @@ def main():
 
     # Run the script
     try:
-        result = subprocess.run(cmd)
+        # Force unbuffered child stdout so long-running queries stream progress logs.
+        child_env = os.environ.copy()
+        child_env.setdefault("PYTHONUNBUFFERED", "1")
+
+        result = subprocess.run(cmd, env=child_env)
         sys.exit(result.returncode)
     except KeyboardInterrupt:
         print("\n⚠️ Interrupted by user")

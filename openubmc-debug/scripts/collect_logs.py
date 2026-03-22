@@ -1,32 +1,30 @@
 #!/usr/bin/env python3
-"""Collect openUBMC logs over telnet (root, no password)."""
+"""Collect openUBMC logs over telnet, with optional login handling."""
 from __future__ import annotations
 
 import argparse
+import json
 import re
 import sys
-import time
-from datetime import datetime
 from pathlib import Path
-import warnings
-
-warnings.filterwarnings("ignore", category=DeprecationWarning)
-
-import telnetlib
-
-ANSI_RE = re.compile(r"\x1b\[[0-9;]*[A-Za-z]")
+from _cli_common import resolve_telnet_credentials
+from _debug_dump import build_debug_dumper
+from _json_common import build_json_payload as build_common_json_payload
 TS_RE = re.compile(r"^(\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2})")
-LOGIN_RE = re.compile(br"(login:|password:)", re.IGNORECASE)
 
-
-def strip_ansi(text: str) -> str:
-    return ANSI_RE.sub("", text)
+from _telnet_common import close_telnet, run_cmd, telnet_connect
 
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Collect app/framework logs via telnet.")
     parser.add_argument("--ip", required=True, help="BMC IP")
-    parser.add_argument("--port", type=int, default=23, help="Telnet port (default: 23)")
+    parser.add_argument("--port", "--telnet-port", dest="telnet_port", type=int, default=23, help="Telnet port (default: 23)")
+    parser.add_argument("--user", "--telnet-user", dest="telnet_user", default="Administrator", help="Telnet username when login prompt appears")
+    parser.add_argument("--password", "--telnet-password", dest="telnet_password", default="Admin@9000", help="Telnet password when login prompt appears")
+    parser.add_argument("--user-env", "--telnet-user-env", dest="telnet_user_env", default="", help="Environment variable holding the Telnet username")
+    parser.add_argument("--password-env", "--telnet-password-env", dest="telnet_password_env", default="", help="Environment variable holding the Telnet password")
+    parser.add_argument("--connect-timeout", type=int, default=10, help="Telnet connect timeout seconds")
+    parser.add_argument("--prompt-timeout", type=int, default=5, help="Telnet prompt/login timeout seconds")
     parser.add_argument(
         "--logs",
         default="app.log,framework.log",
@@ -51,56 +49,11 @@ def parse_args() -> argparse.Namespace:
         default="",
         help="Optional directory to write output files; stdout otherwise",
     )
+    parser.add_argument("--debug-dump", default="", help="Optional directory for raw Telnet debug artifacts")
+    parser.add_argument("--json", action="store_true", help="Emit machine-readable JSON instead of text output")
     return parser.parse_args()
 
-
-def telnet_connect(ip: str, port: int) -> telnetlib.Telnet:
-    tn = telnetlib.Telnet(ip, port, timeout=10)
-    # Drain banner and land on a prompt if possible
-    data = b""
-    try:
-        data += tn.read_until(b"# ", timeout=5)
-    except Exception:
-        pass
-    if not data:
-        try:
-            tn.write(b"\n")
-            data += tn.read_until(b"# ", timeout=5)
-        except Exception:
-            pass
-    if data and LOGIN_RE.search(data):
-        raise RuntimeError(
-            "Telnet login prompt detected; collect_logs.py assumes passwordless access. "
-            "Use manual telnet or login first."
-        )
-    return tn
-
-
-def run_cmd(tn: telnetlib.Telnet, cmd: str, timeout: int = 20) -> str:
-    # Use control-byte sentinels to avoid matching echoed command text
-    start_b = b"\x1e"  # RS
-    end_b = b"\x1f"    # US
-    full_cmd = f"printf '\\036'; {cmd}; printf '\\037'"
-    tn.write(full_cmd.encode("utf-8") + b"\n")
-
-    deadline = time.time() + timeout
-    data = b""
-    while time.time() < deadline:
-        chunk = tn.read_until(end_b, timeout=max(0.1, deadline - time.time()))
-        if not chunk:
-            break
-        data += chunk
-        if end_b in data:
-            break
-
-    if start_b in data and end_b in data:
-        data = data.split(start_b, 1)[1]
-        data = data.rsplit(end_b, 1)[0]
-    text = strip_ansi(data.decode("utf-8", errors="ignore"))
-    return text.strip("\r\n")
-
-
-def get_boot_time_str(tn: telnetlib.Telnet) -> str | None:
+def get_boot_time_str(tn) -> str | None:
     now_raw = run_cmd(tn, "date +%s")
     uptime_raw = run_cmd(tn, "cut -d' ' -f1 /proc/uptime")
     try:
@@ -116,9 +69,7 @@ def get_boot_time_str(tn: telnetlib.Telnet) -> str | None:
     return boot_str
 
 
-def list_log_files(
-    tn: telnetlib.Telnet, base: str, include_rotated: bool, rotated_limit: int
-) -> list[str]:
+def list_log_files(tn, base: str, include_rotated: bool, rotated_limit: int) -> list[str]:
     if include_rotated:
         # Sort by mtime to keep most recent first
         ls_out = run_cmd(tn, f"ls -1t /var/log/{base}* 2>/dev/null")
@@ -156,46 +107,177 @@ def filter_lines(lines: list[str], since_boot: str | None, keywords: list[str]) 
     return result
 
 
+def build_empty_message(path: str, since_boot: str | None, keywords: list[str]) -> str:
+    reasons: list[str] = []
+    if keywords:
+        reasons.append(f"grep={','.join(keywords)}")
+    if since_boot:
+        reasons.append(f"since_boot>={since_boot}")
+    suffix = f" after filters ({'; '.join(reasons)})" if reasons else ""
+    return f"[INFO] 0 matching lines for {path}{suffix}"
+
+
+def build_json_payload(
+    args: argparse.Namespace,
+    *,
+    ok: bool,
+    code: str,
+    returncode: int,
+    logs: list[str],
+    keywords: list[str],
+    boot_time: str | None,
+    warnings: list[str],
+    entries: list[dict[str, object]],
+    error: str = "",
+    written_files: list[str] | None = None,
+) -> dict[str, object]:
+    payload = build_common_json_payload(
+        tool="collect_logs",
+        ip=args.ip,
+        ok=ok,
+        code=code,
+        returncode=returncode,
+        warnings=warnings,
+        error=error,
+        request={
+            "logs_requested": logs,
+            "keywords": keywords,
+            "since_boot_requested": args.since_boot,
+            "lines": args.lines,
+            "include_rotated": args.include_rotated,
+            "rotated_limit": args.rotated_limit,
+            "output_dir": args.output_dir or "",
+        },
+        result={
+            "boot_time": boot_time,
+            "entries": entries,
+            "written_files": written_files or [],
+        },
+    )
+    payload.update({
+        "ip": args.ip,
+        "ok": ok,
+        "code": code,
+        "returncode": returncode,
+        "logs_requested": logs,
+        "keywords": keywords,
+        "since_boot_requested": args.since_boot,
+        "boot_time": boot_time,
+        "warnings": warnings,
+        "entries": entries,
+        "error": error,
+        "output_dir": args.output_dir or "",
+        "written_files": written_files or [],
+    })
+    return payload
+
+
+def emit_json_payload(payload: dict[str, object]) -> None:
+    print(json.dumps(payload, indent=2, ensure_ascii=False))
+
+
 def main() -> int:
     args = parse_args()
+    telnet = resolve_telnet_credentials(args)
+    debug_dumper = build_debug_dumper(args.debug_dump, secrets=[str(telnet["password"])])
     logs = [item.strip() for item in args.logs.split(",") if item.strip()]
     keywords = [k.strip().lower() for k in args.grep.split(",") if k.strip()]
     out_dir = Path(args.output_dir) if args.output_dir else None
+    warnings: list[str] = []
+    entries: list[dict[str, object]] = []
+    written_files: list[str] = []
     if out_dir:
         out_dir.mkdir(parents=True, exist_ok=True)
 
     try:
-        tn = telnet_connect(args.ip, args.port)
-    except RuntimeError as exc:
+        tn = telnet_connect(
+            args.ip,
+            int(telnet["port"]),
+            str(telnet["user"]),
+            str(telnet["password"]),
+            connect_timeout=args.connect_timeout,
+            prompt_timeout=args.prompt_timeout,
+            debug_dumper=debug_dumper,
+            debug_label="collect_logs_connect",
+        )
+    except (RuntimeError, OSError) as exc:
+        if args.json:
+            emit_json_payload(
+                build_json_payload(
+                    args,
+                    ok=False,
+                    code="telnet_connect_failed",
+                    returncode=2,
+                    logs=logs,
+                    keywords=keywords,
+                    boot_time=None,
+                    warnings=[],
+                    entries=[],
+                    error=str(exc),
+                )
+            )
+            return 2
         print(f"[ERROR] {exc}", file=sys.stderr)
         return 2
     try:
         boot_str = get_boot_time_str(tn) if args.since_boot else None
         if args.since_boot and not boot_str:
-            print("[WARN] Cannot compute boot time; --since-boot ignored", file=sys.stderr)
+            warnings.append("Cannot compute boot time; --since-boot ignored")
+            if not args.json:
+                print("[WARN] Cannot compute boot time; --since-boot ignored", file=sys.stderr)
         for base in logs:
             files = list_log_files(tn, base, args.include_rotated, args.rotated_limit)
             for path in files:
                 cmd = tail_file_cmd(path, args.lines)
-                content = run_cmd(tn, cmd, timeout=30)
+                content = run_cmd(
+                    tn,
+                    cmd,
+                    timeout=30,
+                    debug_dumper=debug_dumper,
+                    debug_name=f"log_{Path(path).name}",
+                )
                 lines = [l for l in content.splitlines() if l.strip()]
                 lines = filter_lines(lines, boot_str, keywords)
                 header = f"# {path}"
+                empty_message = "" if lines else build_empty_message(path, boot_str, keywords)
+                body = "\n".join(lines) if lines else empty_message
+                entries.append(
+                    {
+                        "path": path,
+                        "header": header,
+                        "line_count": len(lines),
+                        "lines": lines,
+                        "empty": not bool(lines),
+                        "empty_message": empty_message,
+                    }
+                )
                 if out_dir:
                     safe_name = path.replace("/", "_").strip("_") + ".txt"
                     out_path = out_dir / safe_name
-                    out_path.write_text(header + "\n" + "\n".join(lines) + "\n", encoding="utf-8")
+                    out_path.write_text(header + "\n" + body + "\n", encoding="utf-8")
+                    written_files.append(str(out_path))
                 else:
-                    print(header)
-                    print("\n".join(lines))
-                    print("")
+                    if not args.json:
+                        print(header)
+                        print(body)
+                        print("")
     finally:
-        try:
-            tn.write(b"exit\n")
-            time.sleep(0.2)
-        except Exception:
-            pass
-        tn.close()
+        close_telnet(tn)
+    if args.json:
+        emit_json_payload(
+            build_json_payload(
+                args,
+                ok=True,
+                code="ok",
+                returncode=0,
+                logs=logs,
+                keywords=keywords,
+                boot_time=boot_str,
+                warnings=warnings,
+                entries=entries,
+                written_files=written_files,
+            )
+        )
     return 0
 
 

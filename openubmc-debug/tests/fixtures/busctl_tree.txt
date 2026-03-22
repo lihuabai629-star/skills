@@ -1,0 +1,4 @@
+/bmc/kepler/Chassis/1
+/bmc/kepler/Chassis/1/SensorSelInfo
+/bmc/kepler/Chassis/2
+/bmc/kepler/Chassis/2/Thermal

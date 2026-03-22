@@ -1,0 +1,32 @@
+{
+  "openubmc-debug": {
+    "dbus": [
+      "mdbctl",
+      "busctl",
+      "object-path",
+      "service",
+      "property",
+      "interface"
+    ],
+    "mdbctl": [
+      "dbus",
+      "busctl",
+      "object-path"
+    ],
+    "busctl": [
+      "dbus",
+      "mdbctl",
+      "object-path"
+    ],
+    "app.log": [
+      "framework.log",
+      "var/log",
+      "rotated-log"
+    ],
+    "framework.log": [
+      "app.log",
+      "var/log",
+      "rotated-log"
+    ]
+  }
+}
